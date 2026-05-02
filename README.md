@@ -1,6 +1,6 @@
 # **Ground Station for Satellite Tracking**
 
-This repository documents the design and implementation of a complete **VHF/UHF satellite ground station** capable of automatically tracking Low Earth Orbit (LEO) satellites.  
+This repository documents the design and implementation of a complete **VHF/UHF satellite ground station** capable of tracking Low Earth Orbit (LEO) satellites.  
 The system includes:
 
 - a dual‑axis **rotator**
@@ -28,7 +28,7 @@ source .venv/bin/activate
 pip install .
 ```
 
-For development work:
+For development:
 
 ```bash
 pip install -e ".[dev]"
@@ -44,170 +44,213 @@ pytest -q
 
 ## **1. System Overview**
 
-The ground station is built to track fast‑moving LEO satellites with high pointing accuracy.  
+The ground station tracks fast LEO satellites with high pointing accuracy.  
 It consists of two main subsystems:
 
 ### **Rotator Subsystem (Raspberry Pi)**  
-Handles all hardware control:
+Handles hardware control:
 
-- stepper motors (azimuth + elevation)
-- polarization relays (VHF + UHF)
+- stepper motors (azimuth and elevation)
+- polarization relays
 - GPIO abstraction
 - MQTT command interface
-- telemetry + heartbeat
+- telemetry and heartbeat
+- structured logging
+- runtime metrics
 - systemd‑managed daemon
 
 ### **Station Subsystem (Laptop/PC)**  
-Handles all high‑level logic:
+Handles high‑level logic:
 
-- TLE management and caching
+- TLE management
 - pass prediction
 - scheduling
 - SatNOGS API integration
 - transmitter metadata
 - MQTT control of the rotator
 - optional GUI
+- structured logging
 
 ---
 
 ## **2. Rotator Hardware**
 
 ### **Mechanical Design**
-The rotator frame is built from aluminum and wood, with dimensions **240 × 240 × 305 mm**.  
-It includes:
+The rotator frame uses aluminum, wood, and 3D‑printed parts.  
+Dimensions: **240 × 240 × 305 mm**
+
+Features:
 
 - 4 bearings (2 azimuth, 2 elevation)
 - spur gear reduction
-- modular rods for easy assembly
-- 3D‑printed parts (available in `/stl-files/rotator`)
+- modular rods
+- 3D‑printed components (`/stl-files/rotator`)
 
 ### **Electronics**
-Powered by a **20 V / 45 W laptop charger**, with a buck converter providing 5 V logic power.
-
-Key components:
 
 - Raspberry Pi 4B  
 - 2× NEMA23 stepper motors  
-- 2× TB6600 stepper drivers  
+- 2× TB6600 drivers  
 - LM2596 buck converter  
 - 4× polarization relays  
+- 20 V / 45 W supply  
 
-The Raspberry Pi controls all hardware via GPIO.
+GPIO pins control all hardware.
 
 ---
 
 ## **3. Rotator Software**
 
-The rotator software is fully modular and runs as a systemd service.
+The rotator software is modular and runs as a systemd service.
 
 ### **Modules**
 Located in `groundstation/rotator/`:
 
-- `controller.py` — high‑level motion logic  
-- `stepper.py` — stepper motor control  
+- `controller.py` — motion logic  
+- `stepper.py` — stepper control  
 - `gpio.py` — hardware abstraction  
 - `polarization.py` — relay control  
-- `state_machine.py` — explicit rotator states  
-- `mqtt_client.py` — MQTT command + telemetry  
-- `protocol.py` — shared message schema  
-- `service/rotator.service` — systemd unit  
+- `state_machine.py` — explicit states  
+- `mqtt_client.py` — MQTT command and telemetry  
+- `protocol.py` — message schema  
 - `rotator_daemon.py` — main daemon  
 - `rotator_shutdown.py` — safe shutdown  
 
-### **MQTT Interface**
-Commands:
+---
 
-- move to az/el  
-- stop  
-- home  
-- shutdown  
-- set polarization  
+## **3.1 Logging**
 
-Telemetry:
+The rotator uses structured logging through the Python `logging` module.  
+Each module exposes a dedicated logger:
 
-- current az/el  
-- current polarization  
-- state  
-- heartbeat  
+- `rotator.controller`
+- `rotator.stepper`
+- `rotator.polarization`
+- `rotator.mqtt`
+
+Logs include:
+
+- movement commands  
+- limit violations  
+- homing  
+- shutdown events  
+- stepper activity  
+- MQTT connection and message handling  
+
+Enable logging:
+
+```python
+import logging
+logging.basicConfig(level=logging.INFO)
+```
+
+---
+
+## **3.2 Metrics**
+
+Runtime metrics are collected through a thread‑safe metrics store:
+
+```
+groundstation/logging/metrics.py
+```
+
+Metrics include:
+
+- `rotator.azimuth_deg`  
+- `rotator.elevation_deg`  
+- `rotator.limit_violations`  
+- `rotator.mqtt_messages_sent`  
+- `rotator.mqtt_latency_ms`  
+
+API:
+
+```python
+from groundstation.logging.metrics import metrics
+
+metrics.set("rotator.azimuth_deg", 123.4)
+metrics.inc("rotator.limit_violations")
+metrics.observe("rotator.mqtt_latency_ms", 12.8)
+
+print(metrics.snapshot())
+```
+
+Metrics support testing, debugging, and monitoring.
 
 ---
 
 ## **4. Antennas**
 
-Two **cross‑Yagi antennas** are mounted on the rotator:
+Two **cross‑Yagi antennas** are mounted on the rotator.
 
-### **VHF (145 MHz)**
+### **VHF (145 MHz)**  
 - 4 elements  
 - λ/4 phase offset  
-- element lengths and positions included in documentation  
 
-### **UHF (435 MHz)**
+### **UHF (435 MHz)**  
 - 9 elements  
 - λ/4 phase offset  
-- element lengths and positions included in documentation  
 
-All mechanical models are available in `/stl-files/antennas`.
+Models are in `/stl-files/antennas`.
 
 ---
 
 ## **5. Polarization Switchers**
 
-Each band (VHF and UHF) uses a dual‑relay phase‑shift switcher supporting:
+Each band uses a dual‑relay phase‑shift switcher supporting:
 
 - Vertical  
 - Horizontal  
 - RHCP  
 - LHCP  
 
-Housings are 3D‑printed (`/stl-files/polarization_switcher`).
+Housings are in `/stl-files/polarization_switcher`.
 
 ---
 
 ## **6. Receiver**
 
-The station uses an **Airspy Mini** SDR for high‑quality VHF/UHF reception.
+The station uses an **Airspy Mini** SDR for VHF/UHF reception.
 
 ---
 
 ## **7. Station Software**
 
-The station computer runs the high‑level tracking logic.
+The station computer runs the tracking logic.
 
 ### **Tracking Modules**
 Located in `groundstation/station/tracking/`:
 
-- `predictor.py` — pass prediction using the *beyond* library  
-- `scheduler.py` — selects next satellite to track  
-- `tle_manager.py` — cached TLE storage + updates  
-- `satnogs_client.py` — async SatNOGS API client  
-- `transmitter_db.py` — transmitter metadata cache  
+- `predictor.py` — pass prediction  
+- `scheduler.py` — pass selection  
+- `tle_manager.py` — TLE caching  
+- `satnogs_client.py` — SatNOGS API  
+- `transmitter_db.py` — transmitter metadata  
 
 ### **MQTT Client**
 Located in `groundstation/station/mqtt/`:
 
-- `client.py` — sends commands to rotator and receives telemetry  
+- `client.py` — sends commands and receives telemetry  
 
-### **Workflow**
-1. Load TLEs and transmitter metadata  
-2. Predict upcoming passes  
-3. When AOS occurs:  
-   - send initial az/el to rotator  
-4. During pass:  
-   - stream az/el updates  
-5. After LOS:  
-   - rotator returns to home position  
+### **Logging**
+
+The station subsystem uses Python logging for:
+
+- TLE updates  
+- scheduler decisions  
+- tracking loop  
+- SatNOGS API interactions  
 
 ---
 
 ## **8. Configuration**
 
-All system configuration is stored in:
+All configuration is stored in:
 
 ```
 config/default.yaml
 ```
 
-This includes:
+Includes:
 
 - station location  
 - MQTT broker settings  
@@ -222,7 +265,7 @@ This includes:
 
 ## **9. Mechanical Assets**
 
-All 3D‑printed parts are included in:
+3D‑printed parts are in:
 
 ```
 stl-files/
@@ -233,21 +276,3 @@ Subdirectories:
 - `rotator/`
 - `antennas/`
 - `polarization_switcher/`
-
----
-
-## **10. Images**
-
-Reference images and diagrams are stored in:
-
-```
-images/
-```
-
-These include:
-
-- rotator photos  
-- antenna photos  
-- Raspberry Pi pinout  
-- SDR screenshots  
-- GUI screenshots  
