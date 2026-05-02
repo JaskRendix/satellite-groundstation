@@ -18,10 +18,6 @@ This project includes mechanical assets and reference images originally publishe
 
 ---
 
-Here’s a **short, clean installation section** you can drop straight into your README without breaking its flow:
-
----
-
 ## **Installation**
 
 Create a virtual environment and install the project:
