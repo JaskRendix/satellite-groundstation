@@ -12,6 +12,10 @@ must ONLY depend on GpioInterface — never directly on RPi.GPIO.
 
 from abc import ABC, abstractmethod
 
+from groundstation.logging import init_logging, metrics
+
+logger = init_logging("rotator.gpio")
+
 
 class GpioInterface(ABC):
     """Abstract GPIO interface used by the rotator subsystem."""
@@ -35,21 +39,46 @@ class RpiGpioBackend(GpioInterface):
     """
 
     def __init__(self):
-        import RPi.GPIO as GPIO  # imported here so tests don't require it
+        try:
+            import RPi.GPIO as GPIO  # imported here so tests don't require it
+        except Exception as e:
+            logger.error(f"Failed to import RPi.GPIO: {e}")
+            metrics.inc("rotator.gpio_errors")
+            raise
 
         self.GPIO = GPIO
 
+        logger.info("Initializing RPi.GPIO backend")
         self.GPIO.setmode(self.GPIO.BCM)
         self.GPIO.setwarnings(False)
 
     def setup_output(self, pin: int) -> None:
-        self.GPIO.setup(pin, self.GPIO.OUT)
+        try:
+            logger.debug(f"GPIO setup_output(pin={pin})")
+            self.GPIO.setup(pin, self.GPIO.OUT)
+        except Exception as e:
+            logger.error(f"GPIO setup_output error on pin {pin}: {e}")
+            metrics.inc("rotator.gpio_errors")
+            raise
 
     def write(self, pin: int, value: bool) -> None:
-        self.GPIO.output(pin, self.GPIO.HIGH if value else self.GPIO.LOW)
+        try:
+            logger.debug(f"GPIO write(pin={pin}, value={value})")
+            self.GPIO.output(pin, self.GPIO.HIGH if value else self.GPIO.LOW)
+            metrics.inc("rotator.gpio_writes")
+        except Exception as e:
+            logger.error(f"GPIO write error on pin {pin}: {e}")
+            metrics.inc("rotator.gpio_errors")
+            raise
 
     def cleanup(self) -> None:
-        self.GPIO.cleanup()
+        try:
+            logger.info("GPIO cleanup")
+            self.GPIO.cleanup()
+        except Exception as e:
+            logger.error(f"GPIO cleanup error: {e}")
+            metrics.inc("rotator.gpio_errors")
+            raise
 
 
 class MockGpioBackend(GpioInterface):
@@ -60,15 +89,20 @@ class MockGpioBackend(GpioInterface):
     """
 
     def __init__(self):
+        logger.info("Initializing MockGpioBackend")
         self.pins: dict[int, bool] = {}
 
     def setup_output(self, pin: int) -> None:
+        logger.debug(f"MockGPIO setup_output(pin={pin})")
         self.pins[pin] = False
 
     def write(self, pin: int, value: bool) -> None:
+        logger.debug(f"MockGPIO write(pin={pin}, value={value})")
         self.pins[pin] = value
+        metrics.inc("rotator.gpio_writes")
 
     def cleanup(self) -> None:
+        logger.info("MockGPIO cleanup")
         self.pins.clear()
 
     def debug_dump(self) -> dict[int, bool]:

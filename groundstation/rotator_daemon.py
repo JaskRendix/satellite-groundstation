@@ -2,15 +2,16 @@
 """
 Rotator Daemon
 
-This script initializes:
+Initializes:
 - GPIO backend
 - Stepper motors
 - Rotator controller
 - Polarization switcher
 - State machine
 - MQTT client
+- Logging + metrics
 
-Then runs indefinitely as a systemd service.
+Runs indefinitely as a systemd service.
 """
 
 import time
@@ -18,6 +19,7 @@ from pathlib import Path
 
 import yaml
 
+from groundstation.logging import init_logging, metrics
 from groundstation.rotator.controller import AxisConfig, RotatorController
 from groundstation.rotator.gpio import RpiGpioBackend
 from groundstation.rotator.mqtt_client import RotatorMqttClient
@@ -26,6 +28,9 @@ from groundstation.rotator.state_machine import RotatorStateMachine
 from groundstation.rotator.stepper import StepperConfig
 
 
+# ------------------------------------------------------------
+# Load YAML configuration
+# ------------------------------------------------------------
 def load_config():
     config_path = Path("/home/pi/groundstation/config/default.yaml")
     with open(config_path, "r") as f:
@@ -35,8 +40,19 @@ def load_config():
 def main():
     cfg = load_config()
 
-    # GPIO backend
+    log_cfg = cfg.get("logging", {})
+    logger = init_logging(
+        name="rotator.daemon",
+        level=log_cfg.get("level", "INFO"),
+        fmt=log_cfg.get("format", "text"),
+        logfile=log_cfg.get("file"),
+    )
+
+    logger.info("Rotator daemon starting")
+    metrics.set("rotator.state", "initializing")
+
     gpio = RpiGpioBackend()
+    logger.info("GPIO backend initialized")
 
     az_stepper_cfg = StepperConfig(
         ena_pin=5,
@@ -83,6 +99,7 @@ def main():
         vhf_rel2=26,
     )
     polarization = PolarizationSwitcher(gpio, pol_cfg)
+    logger.info("Polarization switcher initialized")
 
     controller = RotatorController(
         gpio=gpio,
@@ -90,8 +107,10 @@ def main():
         el_config=el_axis_cfg,
         polarization=polarization,
     )
+    logger.info("Rotator controller initialized")
 
     state_machine = RotatorStateMachine()
+    metrics.set("rotator.state", "idle")
 
     mqtt_cfg = cfg["mqtt"]
 
@@ -105,22 +124,32 @@ def main():
     )
 
     mqtt_client.start()
+    logger.info("MQTT client started")
 
-    print("Rotator daemon started")
+    metrics.set("rotator.state", "running")
+    logger.info("Rotator daemon fully initialized")
 
     try:
         while True:
             time.sleep(1)
 
     except KeyboardInterrupt:
-        print("Rotator daemon interrupted")
+        logger.warning("Rotator daemon interrupted by user")
+
+    except Exception as e:
+        logger.error(f"Fatal rotator daemon error: {e}")
+        metrics.set("rotator.state", "error")
+        raise
 
     finally:
-        print("Shutting down rotator...")
+        logger.info("Shutting down rotator...")
+        metrics.set("rotator.state", "shutdown")
+
         mqtt_client.stop()
         controller.shutdown()
         gpio.cleanup()
-        print("Rotator daemon stopped")
+
+        logger.info("Rotator daemon stopped")
 
 
 if __name__ == "__main__":

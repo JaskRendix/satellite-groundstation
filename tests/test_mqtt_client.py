@@ -32,7 +32,7 @@ def client(mock_controller, mock_mqtt):
         port=1883,
         username="user",
         password="pass",
-        heartbeat_interval=0.01,  # fast for tests
+        heartbeat_interval=0.01,
     )
 
 
@@ -41,10 +41,10 @@ def test_on_connect_success(client, mock_mqtt):
     mock_mqtt.subscribe.assert_called_once_with(TOPIC_COMMAND)
 
 
-def test_on_connect_failure(client, mock_mqtt, capsys):
+def test_on_connect_failure(client, mock_mqtt, caplog):
+    caplog.set_level("ERROR")
     client._on_connect(mock_mqtt, None, None, rc=5)
-    captured = capsys.readouterr()
-    assert "failed" in captured.out.lower()
+    assert "connection failed" in caplog.text.lower()
 
 
 def test_handle_move_command(client, mock_controller):
@@ -74,12 +74,12 @@ def test_handle_polarization_command(client, mock_controller):
     mock_controller.set_polarization.assert_called_once_with("RHCP")
 
 
-def test_handle_invalid_json(client, capsys):
+def test_handle_invalid_json(client, caplog):
+    caplog.set_level("ERROR")
     msg = MagicMock()
     msg.payload.decode.return_value = "{invalid json"
     client._on_message(None, None, msg)
-    captured = capsys.readouterr()
-    assert "invalid" in captured.out.lower()
+    assert "invalid mqtt payload" in caplog.text.lower()
 
 
 def test_heartbeat_loop_publishes(mock_controller, mock_mqtt):
@@ -92,7 +92,6 @@ def test_heartbeat_loop_publishes(mock_controller, mock_mqtt):
         heartbeat_interval=0.001,
     )
 
-    # Run only one iteration
     client._running = True
     with patch("time.sleep", side_effect=lambda x: setattr(client, "_running", False)):
         client._heartbeat_loop()
@@ -114,7 +113,6 @@ def test_state_loop_publishes_state(mock_controller, mock_mqtt):
     with patch("time.sleep", side_effect=lambda x: setattr(client, "_running", False)):
         client._state_loop()
 
-    # Extract the JSON payload sent
     args, kwargs = mock_mqtt.publish.call_args
     assert args[0] == TOPIC_STATE
     state = json.loads(args[1])

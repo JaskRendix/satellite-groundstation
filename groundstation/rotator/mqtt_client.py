@@ -4,8 +4,12 @@ import time
 
 import paho.mqtt.client as mqtt
 
+from groundstation.logging import init_logging, metrics
+
 from .controller import RotatorController
 from .protocol import TOPIC_COMMAND, TOPIC_HEARTBEAT, TOPIC_STATE
+
+logger = init_logging("rotator.mqtt")
 
 
 class RotatorMqttClient:
@@ -48,8 +52,11 @@ class RotatorMqttClient:
         )
         self._state_thread = threading.Thread(target=self._state_loop, daemon=True)
 
+        logger.info(f"MQTT client initialized for {host}:{port}")
+
     def start(self):
         """Start MQTT connection and background threads."""
+        logger.info("Starting MQTT client")
         self.client.connect(self.host, self.port, keepalive=10)
         self.client.loop_start()
 
@@ -58,25 +65,36 @@ class RotatorMqttClient:
 
     def stop(self):
         """Stop MQTT and background threads."""
+        logger.info("Stopping MQTT client")
         self._running = False
         self.client.loop_stop()
         self.client.disconnect()
 
     def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:
-            print("Rotator MQTT connected")
+            logger.info("Rotator MQTT connected successfully")
             client.subscribe(TOPIC_COMMAND)
         else:
-            print(f"Rotator MQTT connection failed: {rc}")
+            logger.error(f"Rotator MQTT connection failed: rc={rc}")
+            metrics.inc("rotator.mqtt_errors")
 
     def _on_message(self, client, userdata, msg):
+        start = time.time()
+
+        logger.debug(f"MQTT message received on {msg.topic}")
+
         try:
             payload = json.loads(msg.payload.decode("utf-8"))
         except json.JSONDecodeError:
-            print("Invalid MQTT payload")
+            logger.error("Invalid MQTT payload (JSON decode error)")
+            metrics.inc("rotator.mqtt_errors")
             return
 
+        metrics.inc("rotator.commands_received")
         self._handle_command(payload)
+
+        latency = (time.time() - start) * 1000
+        metrics.observe("rotator.mqtt_latency_ms", latency)
 
     def _handle_command(self, cmd: dict):
         """
@@ -91,12 +109,16 @@ class RotatorMqttClient:
         """
 
         cmd_type = cmd.get("type")
+        logger.info(f"Handling command: {cmd_type}")
 
         if cmd_type == "move":
             az = cmd.get("az")
             el = cmd.get("el")
             if az is not None and el is not None:
                 self.controller.move_to(az, el)
+            else:
+                logger.error("Move command missing az/el")
+                metrics.inc("rotator.mqtt_errors")
 
         elif cmd_type == "stop":
             self.controller.stop()
@@ -105,6 +127,7 @@ class RotatorMqttClient:
             self.controller.home()
 
         elif cmd_type == "shutdown":
+            logger.warning("Shutdown command received")
             self.controller.shutdown()
             self.stop()
 
@@ -112,11 +135,19 @@ class RotatorMqttClient:
             mode = cmd.get("mode")
             if mode:
                 self.controller.set_polarization(mode)
+            else:
+                logger.error("Polarization command missing mode")
+                metrics.inc("rotator.mqtt_errors")
+
+        else:
+            logger.error(f"Unknown command type: {cmd_type}")
+            metrics.inc("rotator.mqtt_errors")
 
     def _heartbeat_loop(self):
         """Publish heartbeat every second."""
         while self._running:
             self.client.publish(TOPIC_HEARTBEAT, "alive", qos=0)
+            metrics.inc("rotator.heartbeat_sent")
             time.sleep(self.heartbeat_interval)
 
     def _state_loop(self):
@@ -124,4 +155,5 @@ class RotatorMqttClient:
         while self._running:
             state = self.controller.get_state()
             self.client.publish(TOPIC_STATE, json.dumps(state), qos=0)
+            metrics.inc("rotator.state_published")
             time.sleep(0.5)

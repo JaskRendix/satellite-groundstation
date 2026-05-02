@@ -2,7 +2,11 @@ import threading
 import time
 from dataclasses import dataclass
 
+from groundstation.logging import init_logging, metrics
+
 from .gpio import GpioInterface
+
+logger = init_logging("rotator.stepper")
 
 
 @dataclass
@@ -45,6 +49,9 @@ class StepperMotor:
         self._lock = threading.Lock()
 
         # GPIO setup
+        logger.info(
+            f"Initializing stepper: ena={config.ena_pin}, dir={config.dir_pin}, pul={config.pul_pin}"
+        )
         self.gpio.setup_output(config.ena_pin)
         self.gpio.setup_output(config.dir_pin)
         self.gpio.setup_output(config.pul_pin)
@@ -55,10 +62,14 @@ class StepperMotor:
         self._thread = threading.Thread(target=self._motion_loop, daemon=True)
         self._thread.start()
 
+        metrics.set("rotator.motor_steps", 0)
+
     def enable(self):
+        logger.debug("Stepper enabled")
         self.gpio.write(self.cfg.ena_pin, True)
 
     def disable(self):
+        logger.debug("Stepper disabled")
         self.gpio.write(self.cfg.ena_pin, False)
 
     def move_to(self, angle_deg: float):
@@ -68,13 +79,17 @@ class StepperMotor:
                 angle_deg = angle_deg % 360
             self.target_deg = angle_deg
 
+        logger.info(f"Stepper move_to: target={angle_deg:.3f}°")
+
     def stop(self):
         """Stop motion immediately."""
+        logger.info("Stepper stop requested")
         with self._lock:
             self.current_speed = 0.0
 
     def shutdown(self):
         """Stop thread and disable motor."""
+        logger.info("Stepper shutdown")
         self.running = False
         self._thread.join()
         self.disable()
@@ -86,50 +101,61 @@ class StepperMotor:
         while self.running:
             time.sleep(dt)
 
-            with self._lock:
-                error = self.target_deg - self.position_deg
-
-            if abs(error) < self.step_deg:
-                # Close enough — stop
+            try:
                 with self._lock:
-                    self.current_speed = 0.0
-                continue
+                    error = self.target_deg - self.position_deg
 
-            # Determine direction
-            direction = 1 if error > 0 else -1
-            self._set_direction(direction)
+                if abs(error) < self.step_deg:
+                    # Close enough — stop
+                    with self._lock:
+                        self.current_speed = 0.0
+                    continue
 
-            # Acceleration
-            with self._lock:
-                if abs(self.current_speed) < self.cfg.max_speed_dps:
-                    self.current_speed += direction * self.cfg.max_accel_dps2 * dt
+                # Determine direction
+                direction = 1 if error > 0 else -1
+                self._set_direction(direction)
 
-                # Clamp speed
-                self.current_speed = max(
-                    -self.cfg.max_speed_dps,
-                    min(self.current_speed, self.cfg.max_speed_dps),
-                )
+                # Acceleration
+                with self._lock:
+                    if abs(self.current_speed) < self.cfg.max_speed_dps:
+                        self.current_speed += direction * self.cfg.max_accel_dps2 * dt
 
-                speed = abs(self.current_speed)
+                    # Clamp speed
+                    self.current_speed = max(
+                        -self.cfg.max_speed_dps,
+                        min(self.current_speed, self.cfg.max_speed_dps),
+                    )
 
-            # Convert speed to step frequency
-            if speed < 0.01:
-                continue
+                    speed = abs(self.current_speed)
 
-            steps_per_sec = speed / self.step_deg
-            step_interval = 1.0 / steps_per_sec
+                metrics.set("rotator.motor_speed_dps", speed)
 
-            # Perform one step
-            self._do_step()
-            self.position_deg += direction * self.step_deg
+                # Convert speed to step frequency
+                if speed < 0.01:
+                    continue
 
-            if self.cfg.azimuth_mode:
-                self.position_deg %= 360
+                steps_per_sec = speed / self.step_deg
+                step_interval = 1.0 / steps_per_sec
 
-            # Wait until next step
-            time.sleep(step_interval)
+                # Perform one step
+                self._do_step()
+                self.position_deg += direction * self.step_deg
+
+                if self.cfg.azimuth_mode:
+                    self.position_deg %= 360
+
+                metrics.set("rotator.motor_position_deg", self.position_deg)
+                metrics.inc("rotator.motor_steps")
+
+                # Wait until next step
+                time.sleep(step_interval)
+
+            except Exception as e:
+                logger.error(f"Stepper motion loop error: {e}")
+                metrics.inc("rotator.motor_errors")
 
     def _set_direction(self, direction: int):
+        logger.debug(f"Stepper direction set to {'CW' if direction > 0 else 'CCW'}")
         self.gpio.write(self.cfg.dir_pin, direction > 0)
 
     def _do_step(self):

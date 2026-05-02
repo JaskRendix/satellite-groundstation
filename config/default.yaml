@@ -81,3 +81,18 @@ transmitters:
 satnogs:
   api_token: ""            # optional
   timeout: 10              # seconds
+
+logging:
+  level: INFO            # DEBUG, INFO, WARNING, ERROR
+  format: text           # text or json
+  file: /var/log/groundstation/groundstation.log
+  rotate: true           # enable rotating file handler
+
+metrics:
+  enabled: true
+  prometheus:
+    enabled: true
+    port: 9100           # /metrics endpoint
+  json_export:
+    enabled: false
+    path: /var/log/groundstation/metrics.json

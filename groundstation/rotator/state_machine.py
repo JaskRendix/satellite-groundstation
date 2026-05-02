@@ -2,6 +2,10 @@ import time
 from dataclasses import dataclass
 from enum import Enum, auto
 
+from groundstation.logging import init_logging, metrics
+
+logger = init_logging("rotator.state_machine")
+
 
 class RotatorState(Enum):
     IDLE = auto()
@@ -62,6 +66,9 @@ class RotatorStateMachine:
             timestamp=time.time(),
         )
 
+        logger.info("State machine initialized (state=IDLE)")
+        metrics.set("rotator.state", "idle")
+
     def get_state(self) -> RotatorState:
         return self._status.state
 
@@ -78,20 +85,23 @@ class RotatorStateMachine:
         allowed = self.VALID_TRANSITIONS[current]
 
         if new_state not in allowed:
-            # Invalid transition
-            self._set_status(
-                RotatorState.ERROR,
-                f"Invalid transition {current.name} → {new_state.name}",
-            )
+            err_msg = f"Invalid transition {current.name} → {new_state.name}"
+            logger.error(err_msg)
+            metrics.inc("rotator.state_errors")
+            self._set_status(RotatorState.ERROR, err_msg)
             return False
 
+        logger.info(f"State transition: {current.name} → {new_state.name}")
         self._set_status(new_state, message)
         return True
 
     def set_error(self, message: str):
+        logger.error(f"State machine error: {message}")
+        metrics.inc("rotator.state_errors")
         self._set_status(RotatorState.ERROR, message)
 
     def shutdown(self):
+        logger.info("State machine entering SHUTDOWN")
         self._set_status(RotatorState.SHUTDOWN, "shutdown requested")
 
     def _set_status(self, state: RotatorState, message: str):
@@ -99,4 +109,10 @@ class RotatorStateMachine:
             state=state,
             message=message,
             timestamp=time.time(),
+        )
+
+        metrics.set("rotator.state", state.name.lower())
+
+        logger.debug(
+            f"Status updated: state={state.name}, message='{message}', ts={self._status.timestamp}"
         )
