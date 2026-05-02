@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "groundstation"
+version = "0.1.0"
+description = "Ground station for satellite tracking with rotator control, prediction, and tracking tools."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Giorgio" }
+]
+
+requires-python = ">=3.12"
+
+dependencies = [
+    "paho-mqtt",
+    "beyond",
+    "aiohttp",
+    "pydantic",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+station = [
+    "numpy",
+    "requests",
+]
+
+dev = [
+    "pytest",
+    "pytest-asyncio"
+]
+
+[tool.setuptools]
+packages = ["groundstation"]
+
+[tool.setuptools.package-data]
+groundstation = [
+    "config/*.yaml",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+

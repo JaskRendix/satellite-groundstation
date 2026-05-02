@@ -1,0 +1,27 @@
+[Unit]
+Description=Ground Station Rotator Controller
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+
+# Path to your rotator daemon entrypoint
+ExecStart=/usr/bin/python3 /home/pi/groundstation/rotator_daemon.py
+
+# Restart on crash or network failure
+Restart=always
+RestartSec=3
+
+# Environment (optional)
+Environment=PYTHONUNBUFFERED=1
+
+# Give the service access to GPIO
+User=pi
+Group=pi
+
+# Ensure clean shutdown of motors
+ExecStop=/usr/bin/python3 /home/pi/groundstation/rotator_shutdown.py
+
+[Install]
+WantedBy=multi-user.target

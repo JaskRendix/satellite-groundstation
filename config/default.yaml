@@ -1,0 +1,83 @@
+# ============================================================
+# Groundstation Configuration
+# ============================================================
+
+
+station:
+  name: "MyGroundStation"
+  latitude: 46.0          # degrees
+  longitude: 8.9          # degrees
+  altitude: 300           # meters above sea level
+  min_elevation: 10       # minimum elevation for valid passes (degrees)
+
+
+mqtt:
+  host: "localhost"
+  port: 1883
+  username: "groundstation"
+  password: "password"
+
+
+rotator:
+  # Stepper motor configuration
+  azimuth:
+    ena_pin: 5
+    dir_pin: 6
+    pul_pin: 13
+    step_angle_deg: 1.8
+    microsteps: 8
+    gear_ratio: 100
+    max_speed_dps: 20
+    max_accel_dps2: 40
+    min_deg: 0
+    max_deg: 360
+    home_deg: 0
+
+  elevation:
+    ena_pin: 17
+    dir_pin: 27
+    pul_pin: 22
+    step_angle_deg: 1.8
+    microsteps: 8
+    gear_ratio: 100
+    max_speed_dps: 20
+    max_accel_dps2: 40
+    min_deg: 0
+    max_deg: 180
+    home_deg: 0
+
+  # Polarization relay pins
+  polarization:
+    uhf_rel1: 23
+    uhf_rel2: 24
+    vhf_rel1: 25
+    vhf_rel2: 26
+
+
+tracking:
+  step_seconds: 5          # time resolution for track generation
+  max_pred_days: 3         # how far ahead to search for passes
+  min_max_elevation: 10    # minimum elevation for a valid pass
+
+
+scheduler:
+  poll_interval: 60        # seconds between scheduler checks
+  tracked_satellites:
+    ISS: 25544
+    NOAA-19: 33591
+    METEOR-M2: 40069
+
+
+tle:
+  cache_path: "data/tle_cache.json"
+  max_age_hours: 12
+
+
+transmitters:
+  cache_path: "data/transmitters.json"
+  max_age_hours: 24
+
+
+satnogs:
+  api_token: ""            # optional
+  timeout: 10              # seconds
