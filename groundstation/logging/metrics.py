@@ -15,13 +15,20 @@ class MetricsStore:
             self._values[key] = self._values.get(key, 0) + amount
 
     def observe(self, key: str, value: float) -> None:
-        # For latency/histogram-like metrics
         with self._lock:
             self._values[key] = value
+
+    def get(self, key: str, default=None):
+        with self._lock:
+            return self._values.get(key, default)
 
     def snapshot(self) -> dict[str, int | float]:
         with self._lock:
             return dict(self._values)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._values.clear()
 
 
 metrics = MetricsStore()

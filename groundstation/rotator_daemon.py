@@ -28,9 +28,6 @@ from groundstation.rotator.state_machine import RotatorStateMachine
 from groundstation.rotator.stepper import StepperConfig
 
 
-# ------------------------------------------------------------
-# Load YAML configuration
-# ------------------------------------------------------------
 def load_config():
     config_path = Path("/home/pi/groundstation/config/default.yaml")
     with open(config_path, "r") as f:
