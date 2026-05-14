@@ -40,6 +40,8 @@ Run the full test suite:
 pytest -q
 ```
 
+The test suite uses **MockGpioBackend** and patched stepper/motion threads to simulate hardware.
+
 ---
 
 ## **1. System Overview**
@@ -51,13 +53,15 @@ It consists of two main subsystems:
 Handles hardware control:
 
 - stepper motors (azimuth and elevation)
+- homing switches (GPIO input)
 - polarization relays
-- GPIO abstraction
+- GPIO abstraction layer
 - MQTT command interface
 - telemetry and heartbeat
 - structured logging
 - runtime metrics
 - systemd‑managed daemon
+- shortest‑path azimuth rotation
 
 ### **Station Subsystem (Laptop/PC)**  
 Handles high‑level logic:
@@ -94,8 +98,9 @@ Features:
 - LM2596 buck converter  
 - 4× polarization relays  
 - 20 V / 45 W supply  
+- 2× normally‑closed homing switches (azimuth + elevation)  
 
-GPIO pins control all hardware.
+GPIO pins control all hardware, including **input pins for homing switches**.
 
 ---
 
@@ -106,14 +111,14 @@ The rotator software is modular and runs as a systemd service.
 ### **Modules**
 Located in `groundstation/rotator/`:
 
-- `controller.py` — motion logic  
-- `stepper.py` — stepper control  
-- `gpio.py` — hardware abstraction  
+- `controller.py` — high‑level motion logic, limits, offsets, homing  
+- `stepper.py` — stepper control, homing, shortest‑path azimuth  
+- `gpio.py` — hardware abstraction (input + output)  
 - `polarization.py` — relay control  
-- `state_machine.py` — explicit states  
-- `mqtt_client.py` — MQTT command and telemetry  
+- `state_machine.py` — explicit rotator states  
+- `mqtt_client.py` — MQTT command + telemetry  
 - `protocol.py` — message schema  
-- `rotator_daemon.py` — main daemon  
+- `rotator_daemon.py` — main daemon (config‑driven, performs homing)  
 - `rotator_shutdown.py` — safe shutdown  
 
 ---
@@ -127,22 +132,16 @@ Each module exposes a dedicated logger:
 - `rotator.stepper`
 - `rotator.polarization`
 - `rotator.mqtt`
+- `rotator.gpio`
 
 Logs include:
 
 - movement commands  
 - limit violations  
-- homing  
+- homing events  
 - shutdown events  
 - stepper activity  
 - MQTT connection and message handling  
-
-Enable logging:
-
-```python
-import logging
-logging.basicConfig(level=logging.INFO)
-```
 
 ---
 
@@ -156,11 +155,23 @@ groundstation/logging/metrics.py
 
 Metrics include:
 
-- `rotator.azimuth_deg`  
-- `rotator.elevation_deg`  
-- `rotator.limit_violations`  
-- `rotator.mqtt_messages_sent`  
-- `rotator.mqtt_latency_ms`  
+### **Position + motion**
+- `rotator.azimuth_deg`
+- `rotator.elevation_deg`
+- `rotator.motor_position_deg`
+- `rotator.motor_speed_dps`
+- `rotator.motor_steps`
+
+### **Events + errors**
+- `rotator.limit_violations`
+- `rotator.state_machine`
+- `rotator.polarization_changes`
+
+### **MQTT**
+- `rotator.mqtt_messages_sent`
+- `rotator.mqtt_latency_ms`
+- `rotator.heartbeat_sent`
+- `rotator.state_published`
 
 API:
 
@@ -170,11 +181,7 @@ from groundstation.logging.metrics import metrics
 metrics.set("rotator.azimuth_deg", 123.4)
 metrics.inc("rotator.limit_violations")
 metrics.observe("rotator.mqtt_latency_ms", 12.8)
-
-print(metrics.snapshot())
 ```
-
-Metrics support testing, debugging, and monitoring.
 
 ---
 
@@ -198,10 +205,12 @@ Models are in `/stl-files/antennas`.
 
 Each band uses a dual‑relay phase‑shift switcher supporting:
 
-- Vertical  
-- Horizontal  
-- RHCP  
-- LHCP  
+- `Vertical`
+- `Horizontal`
+- `RHCP`
+- `LHCP`
+
+Modes are **case‑sensitive** and must match the protocol strings.
 
 Housings are in `/stl-files/polarization_switcher`.
 
@@ -255,11 +264,32 @@ Includes:
 - station location  
 - MQTT broker settings  
 - rotator hardware pins  
+- home pins for both axes   
+- azimuth_mode for shortest‑path rotation  
 - tracking parameters  
 - scheduler settings  
 - TLE cache settings  
 - transmitter DB settings  
 - SatNOGS API token  
+
+Example (excerpt):
+
+```yaml
+rotator:
+  azimuth:
+    ena_pin: 5
+    dir_pin: 6
+    pul_pin: 13
+    home_pin: 18
+    azimuth_mode: true
+
+  elevation:
+    ena_pin: 17
+    dir_pin: 27
+    pul_pin: 22
+    home_pin: 23
+    azimuth_mode: false
+```
 
 ---
 
