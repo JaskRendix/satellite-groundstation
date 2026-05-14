@@ -25,6 +25,7 @@ dependencies = [
 [project.optional-dependencies]
 station = [
     "numpy",
+    "numpy-stl",
     "requests",
 ]
 
