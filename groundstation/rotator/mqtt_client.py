@@ -36,7 +36,8 @@ class RotatorMqttClient:
         self.heartbeat_interval = heartbeat_interval
 
         self.client = mqtt.Client()
-        self.client.username_pw_set(username, password=password)
+        if username:
+            self.client.username_pw_set(username, password=password)
 
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
@@ -54,7 +55,7 @@ class RotatorMqttClient:
 
         logger.info(f"MQTT client initialized for {host}:{port}")
 
-    def start(self):
+    def start(self) -> None:
         """Start MQTT connection and background threads."""
         logger.info("Starting MQTT client")
         self.client.connect(self.host, self.port, keepalive=10)
@@ -63,12 +64,16 @@ class RotatorMqttClient:
         self._heartbeat_thread.start()
         self._state_thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop MQTT and background threads."""
         logger.info("Stopping MQTT client")
         self._running = False
-        self.client.loop_stop()
-        self.client.disconnect()
+        try:
+            self.client.loop_stop()
+            self.client.disconnect()
+        except Exception as e:
+            logger.error(f"Error stopping MQTT client: {e}")
+            metrics.inc("rotator.mqtt_errors")
 
     def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:
@@ -93,10 +98,10 @@ class RotatorMqttClient:
         metrics.inc("rotator.commands_received")
         self._handle_command(payload)
 
-        latency = (time.time() - start) * 1000
+        latency = (time.time() - start) * 1000.0
         metrics.observe("rotator.mqtt_latency_ms", latency)
 
-    def _handle_command(self, cmd: dict):
+    def _handle_command(self, cmd: dict) -> None:
         """
         Expected command schema (protocol.py):
 
@@ -115,7 +120,7 @@ class RotatorMqttClient:
             az = cmd.get("az")
             el = cmd.get("el")
             if az is not None and el is not None:
-                self.controller.move_to(az, el)
+                self.controller.move_to(float(az), float(el))
             else:
                 logger.error("Move command missing az/el")
                 metrics.inc("rotator.mqtt_errors")
@@ -134,7 +139,7 @@ class RotatorMqttClient:
         elif cmd_type == "polarization":
             mode = cmd.get("mode")
             if mode:
-                self.controller.set_polarization(mode)
+                self.controller.set_polarization(str(mode))
             else:
                 logger.error("Polarization command missing mode")
                 metrics.inc("rotator.mqtt_errors")
@@ -143,17 +148,25 @@ class RotatorMqttClient:
             logger.error(f"Unknown command type: {cmd_type}")
             metrics.inc("rotator.mqtt_errors")
 
-    def _heartbeat_loop(self):
-        """Publish heartbeat every second."""
+    def _heartbeat_loop(self) -> None:
+        """Publish heartbeat periodically."""
         while self._running:
-            self.client.publish(TOPIC_HEARTBEAT, "alive", qos=0)
-            metrics.inc("rotator.heartbeat_sent")
+            try:
+                self.client.publish(TOPIC_HEARTBEAT, "alive", qos=0)
+                metrics.inc("rotator.heartbeat_sent")
+            except Exception as e:
+                logger.error(f"Error publishing heartbeat: {e}")
+                metrics.inc("rotator.mqtt_errors")
             time.sleep(self.heartbeat_interval)
 
-    def _state_loop(self):
+    def _state_loop(self) -> None:
         """Publish rotator state periodically."""
         while self._running:
-            state = self.controller.get_state()
-            self.client.publish(TOPIC_STATE, json.dumps(state), qos=0)
-            metrics.inc("rotator.state_published")
+            try:
+                state = self.controller.get_state()
+                self.client.publish(TOPIC_STATE, json.dumps(state), qos=0)
+                metrics.inc("rotator.state_published")
+            except Exception as e:
+                logger.error(f"Error publishing state: {e}")
+                metrics.inc("rotator.mqtt_errors")
             time.sleep(0.5)

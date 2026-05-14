@@ -14,18 +14,30 @@ def mock_gpio():
 @pytest.fixture
 def mock_stepper(monkeypatch):
     """
-    Replace StepperMotor with a mock that tracks calls and exposes position_deg.
+    Replace StepperMotor with a mock that tracks calls and exposes position_deg,
+    target_deg, and is_homed — matching the updated StepperMotor API.
     """
 
     class MockStepper:
         def __init__(self, gpio, config):
             self.position_deg = 0
+            self.target_deg = 0
+            self.is_homed = False
+
+            # Methods replaced with MagicMock
             self.move_to = MagicMock(side_effect=self._move_to)
             self.stop = MagicMock()
             self.shutdown = MagicMock()
+            self.find_home = MagicMock(side_effect=self._find_home)
 
         def _move_to(self, deg):
-            self.position_deg = deg
+            self.target_deg = deg
+            self.position_deg = deg  # controller tests assume immediate effect
+
+        def _find_home(self):
+            self.position_deg = 0
+            self.target_deg = 0
+            self.is_homed = True
 
     monkeypatch.setattr("groundstation.rotator.controller.StepperMotor", MockStepper)
     return MockStepper
@@ -38,11 +50,13 @@ def minimal_stepper_cfg():
         ena_pin=1,
         dir_pin=2,
         pul_pin=3,
+        home_pin=4,
         step_angle_deg=1.8,
         microsteps=8,
         gear_ratio=100,
         max_speed_dps=20,
         max_accel_dps2=40,
+        azimuth_mode=False,
     )
 
 
@@ -80,7 +94,10 @@ def test_move_to_applies_offsets_and_clamps(controller):
 
     controller.move_to(az_deg=350, el_deg=190)
 
+    # azimuth: 350 + 10 = 360 (clamped)
     assert controller.az_axis.position_deg == 360
+
+    # elevation: 190 - 5 = 185 → clamped to 180
     assert controller.el_axis.position_deg == 180
 
 
@@ -92,8 +109,12 @@ def test_move_to_without_offsets(controller):
 
 def test_home_moves_to_home_positions(controller):
     controller.home()
+
     assert controller.az_axis.position_deg == controller.az_home
     assert controller.el_axis.position_deg == controller.el_home
+
+    assert controller.az_axis.is_homed
+    assert controller.el_axis.is_homed
 
 
 def test_stop_calls_stepper_stop(controller):
@@ -146,3 +167,7 @@ def test_get_state_returns_snapshot(controller):
     assert state["elevation"] == controller.el_axis.position_deg
     assert state["az_offset"] == 10
     assert state["el_offset"] == -5
+    assert "az_target" in state
+    assert "el_target" in state
+    assert "az_homed" in state
+    assert "el_homed" in state

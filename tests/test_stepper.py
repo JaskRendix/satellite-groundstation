@@ -9,7 +9,9 @@ from groundstation.rotator.stepper import StepperConfig, StepperMotor
 def mock_gpio():
     gpio = MagicMock()
     gpio.setup_output = MagicMock()
+    gpio.setup_input = MagicMock()
     gpio.write = MagicMock()
+    gpio.read = MagicMock(return_value=False)
     return gpio
 
 
@@ -19,6 +21,7 @@ def cfg():
         ena_pin=1,
         dir_pin=2,
         pul_pin=3,
+        home_pin=4,
         step_angle_deg=1.8,
         microsteps=8,
         gear_ratio=100,
@@ -47,16 +50,21 @@ def test_initializes_gpio_pins(mock_gpio, cfg):
     with patch("time.sleep", return_value=None):
         StepperMotor(mock_gpio, cfg)
 
-    expected = [(cfg.ena_pin,), (cfg.dir_pin,), (cfg.pul_pin,)]
-    actual = [call.args for call in mock_gpio.setup_output.call_args_list]
-    assert actual == expected
+    expected_outputs = [
+        (cfg.ena_pin,),
+        (cfg.dir_pin,),
+        (cfg.pul_pin,),
+    ]
+    actual_outputs = [call.args for call in mock_gpio.setup_output.call_args_list]
+    assert actual_outputs == expected_outputs
+
+    mock_gpio.setup_input.assert_called_once_with(cfg.home_pin, pull_up=True)
 
 
 def test_enable_called_on_start(mock_gpio, cfg):
     with patch("time.sleep", return_value=None):
         StepperMotor(mock_gpio, cfg)
 
-    # ena_pin should be written True once
     mock_gpio.write.assert_any_call(cfg.ena_pin, True)
 
 
@@ -70,8 +78,9 @@ def test_move_to_wraps_azimuth(mock_gpio, cfg):
 
     with patch("time.sleep", return_value=None):
         m = StepperMotor(mock_gpio, cfg)
-        m.move_to(725)  # 725 % 360 = 5
-        assert m.target_deg == 5
+        m.position_deg = 350
+        m.move_to(10)  # shortest path = +20°
+        assert abs(m.target_deg - 370) < 1e-6  # 350 + 20
         m.shutdown()
 
 

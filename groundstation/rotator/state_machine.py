@@ -21,7 +21,7 @@ class RotatorStatus:
     message: str = ""
     timestamp: float = 0.0
 
-    def as_dict(self):
+    def as_dict(self) -> dict:
         return {
             "state": self.state.name.lower(),
             "message": self.message,
@@ -36,7 +36,7 @@ class RotatorStateMachine:
     Responsibilities:
     - track current state
     - validate transitions
-    - expose a clean API for controller + MQTT client
+    - expose a clean API for controller + MQTT client + daemon
     """
 
     VALID_TRANSITIONS = {
@@ -55,7 +55,10 @@ class RotatorStateMachine:
             RotatorState.ERROR,
             RotatorState.SHUTDOWN,
         },
-        RotatorState.ERROR: {RotatorState.IDLE, RotatorState.SHUTDOWN},
+        RotatorState.ERROR: {
+            RotatorState.IDLE,
+            RotatorState.SHUTDOWN,
+        },
         RotatorState.SHUTDOWN: set(),  # terminal
     }
 
@@ -95,16 +98,16 @@ class RotatorStateMachine:
         self._set_status(new_state, message)
         return True
 
-    def set_error(self, message: str):
+    def set_error(self, message: str) -> None:
         logger.error(f"State machine error: {message}")
         metrics.inc("rotator.state_errors")
         self._set_status(RotatorState.ERROR, message)
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         logger.info("State machine entering SHUTDOWN")
         self._set_status(RotatorState.SHUTDOWN, "shutdown requested")
 
-    def _set_status(self, state: RotatorState, message: str):
+    def _set_status(self, state: RotatorState, message: str) -> None:
         self._status = RotatorStatus(
             state=state,
             message=message,

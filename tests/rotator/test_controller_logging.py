@@ -11,6 +11,10 @@ from groundstation.rotator.stepper import StepperConfig
 @pytest.fixture
 def mock_gpio():
     gpio = MagicMock()
+    gpio.setup_output = MagicMock()
+    gpio.setup_input = MagicMock()
+    gpio.write = MagicMock()
+    gpio.read = MagicMock(return_value=False)
     return gpio
 
 
@@ -20,6 +24,7 @@ def stepper_cfg():
         ena_pin=1,
         dir_pin=2,
         pul_pin=3,
+        home_pin=4,
         step_angle_deg=1.8,
         microsteps=8,
         gear_ratio=100,
@@ -48,8 +53,34 @@ def mock_polarization(mock_gpio):
 
 
 @pytest.fixture
-def controller(mock_gpio, axis_cfg, mock_polarization):
-    metrics.reset()  # reset metrics
+def controller(mock_gpio, axis_cfg, mock_polarization, monkeypatch):
+    """
+    Patch StepperMotor so controller tests don't start threads.
+    """
+
+    class MockStepper:
+        def __init__(self, gpio, cfg):
+            self.position_deg = 0
+            self.target_deg = 0
+            self.is_homed = False
+
+            self.move_to = MagicMock(side_effect=self._move_to)
+            self.stop = MagicMock()
+            self.shutdown = MagicMock()
+            self.find_home = MagicMock(side_effect=self._find_home)
+
+        def _move_to(self, deg):
+            self.target_deg = deg
+            self.position_deg = deg
+
+        def _find_home(self):
+            self.position_deg = 0
+            self.target_deg = 0
+            self.is_homed = True
+
+    monkeypatch.setattr("groundstation.rotator.controller.StepperMotor", MockStepper)
+
+    metrics.reset()
     return RotatorController(
         gpio=mock_gpio,
         az_config=axis_cfg,
@@ -63,7 +94,7 @@ def test_move_to_logs_and_updates_metrics(controller, caplog):
 
     controller.move_to(10, 20)
 
-    assert "moved to az=10" in caplog.text.lower()
+    assert "rotator commanded to az=10" in caplog.text.lower()
     assert metrics.get("rotator.azimuth_deg") == 10
     assert metrics.get("rotator.elevation_deg") == 20
 
@@ -82,7 +113,7 @@ def test_home_logs_and_updates_metrics(controller, caplog):
 
     controller.home()
 
-    assert "homing" in caplog.text.lower()
+    assert "homing rotator" in caplog.text.lower()
     assert metrics.get("rotator.azimuth_deg") == 0
     assert metrics.get("rotator.elevation_deg") == 0
 
@@ -116,7 +147,12 @@ def test_set_polarization_logs_and_calls_switcher(
 
 def test_get_state_returns_snapshot(controller):
     state = controller.get_state()
+
     assert "azimuth" in state
     assert "elevation" in state
     assert "az_offset" in state
     assert "el_offset" in state
+    assert "az_target" in state
+    assert "el_target" in state
+    assert "az_homed" in state
+    assert "el_homed" in state

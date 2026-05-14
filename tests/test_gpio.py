@@ -16,14 +16,14 @@ def test_gpio_interface_is_abstract():
 def test_mock_gpio_setup_output():
     gpio = MockGpioBackend()
     gpio.setup_output(5)
-    assert gpio.pins[5] is False
+    assert gpio.outputs[5] is False
 
 
 def test_mock_gpio_write():
     gpio = MockGpioBackend()
     gpio.setup_output(7)
     gpio.write(7, True)
-    assert gpio.pins[7] is True
+    assert gpio.outputs[7] is True
 
 
 def test_mock_gpio_cleanup():
@@ -31,7 +31,8 @@ def test_mock_gpio_cleanup():
     gpio.setup_output(1)
     gpio.write(1, True)
     gpio.cleanup()
-    assert gpio.pins == {}
+    assert gpio.outputs == {}
+    assert gpio.inputs == {}
 
 
 def test_mock_gpio_debug_dump():
@@ -40,7 +41,7 @@ def test_mock_gpio_debug_dump():
     gpio.write(3, True)
     dump = gpio.debug_dump()
     assert dump == {3: True}
-    assert dump is not gpio.pins  # must be a copy
+    assert dump is not gpio.outputs
 
 
 def test_rpi_gpio_backend_initializes_gpio():
@@ -72,6 +73,23 @@ def test_rpi_gpio_setup_output():
         backend.setup_output(10)
 
     fake_gpio.setup.assert_called_once_with(10, fake_gpio.OUT)
+
+
+def test_rpi_gpio_setup_input():
+    fake_gpio = MagicMock()
+    fake_gpio.IN = 1
+    fake_gpio.PUD_UP = 2
+
+    fake_rpi = MagicMock()
+    fake_rpi.GPIO = fake_gpio
+
+    with patch.dict("sys.modules", {"RPi": fake_rpi, "RPi.GPIO": fake_gpio}):
+        backend = RpiGpioBackend()
+        backend.setup_input(11, pull_up=True)
+
+    fake_gpio.setup.assert_called_once_with(
+        11, fake_gpio.IN, pull_up_down=fake_gpio.PUD_UP
+    )
 
 
 def test_rpi_gpio_write():

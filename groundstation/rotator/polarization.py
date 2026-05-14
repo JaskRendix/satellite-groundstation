@@ -47,7 +47,6 @@ class PolarizationSwitcher:
         self.gpio = gpio
         self.cfg = config
 
-        # Setup pins
         for pin in [
             config.uhf_rel1,
             config.uhf_rel2,
@@ -81,9 +80,11 @@ class PolarizationSwitcher:
             raise ValueError(f"Invalid polarization mode: {mode}")
 
         if mode == "Vertical":
+            # all relays off
             self._write(False, False, False, False)
 
         elif mode == "Horizontal":
+            # legacy mapping preserved
             self._write(False, True, False, True)
 
         elif mode == "LHCP":
@@ -95,7 +96,7 @@ class PolarizationSwitcher:
         metrics.inc("rotator.polarization_changes")
         logger.info(f"Polarization set to {mode}")
 
-    def _write(self, uhf1: bool, uhf2: bool, vhf1: bool, vhf2: bool):
+    def _write(self, uhf1: bool, uhf2: bool, vhf1: bool, vhf2: bool) -> None:
         logger.debug(f"Relay write: UHF({uhf1}, {uhf2}), VHF({vhf1}, {vhf2})")
 
         try:
@@ -103,7 +104,6 @@ class PolarizationSwitcher:
             self.gpio.write(self.cfg.uhf_rel2, uhf2)
             self.gpio.write(self.cfg.vhf_rel1, vhf1)
             self.gpio.write(self.cfg.vhf_rel2, vhf2)
-
         except Exception as e:
             logger.error(f"GPIO relay write error: {e}")
             metrics.inc("rotator.polarization_errors")

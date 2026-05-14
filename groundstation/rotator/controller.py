@@ -24,7 +24,7 @@ class RotatorController:
     Responsibilities:
     - manage azimuth and elevation axes
     - apply offsets
-    - expose move_to / home / stop API
+    - expose move_to / home / stop / shutdown API
     - integrate polarization control
     - provide current state snapshot
     """
@@ -70,7 +70,6 @@ class RotatorController:
         az_cmd = az_deg + self.az_offset
         el_cmd = el_deg + self.el_offset
 
-        # Clamp + detect violations
         if not (self.az_limits[0] <= az_cmd <= self.az_limits[1]):
             logger.warning(f"Azimuth limit violation: {az_cmd}")
             metrics.inc("rotator.limit_violations")
@@ -87,12 +86,12 @@ class RotatorController:
         metrics.set("rotator.azimuth_deg", az_cmd)
         metrics.set("rotator.elevation_deg", el_cmd)
 
-        logger.info(f"Rotator moved to az={az_cmd}, el={el_cmd}")
+        logger.info(f"Rotator commanded to az={az_cmd}, el={el_cmd}")
 
     def home(self) -> None:
-        logger.info("Homing rotator")
-        self.az_axis.move_to(self.az_home)
-        self.el_axis.move_to(self.el_home)
+        logger.info("Homing rotator (both axes)")
+        self.az_axis.find_home()
+        self.el_axis.find_home()
 
         metrics.set("rotator.azimuth_deg", self.az_home)
         metrics.set("rotator.elevation_deg", self.el_home)
@@ -119,8 +118,12 @@ class RotatorController:
         state = {
             "azimuth": self.az_axis.position_deg,
             "elevation": self.el_axis.position_deg,
+            "az_target": self.az_axis.target_deg,
+            "el_target": self.el_axis.target_deg,
             "az_offset": self.az_offset,
             "el_offset": self.el_offset,
+            "az_homed": self.az_axis.is_homed,
+            "el_homed": self.el_axis.is_homed,
         }
         logger.debug(f"State snapshot: {state}")
         return state
