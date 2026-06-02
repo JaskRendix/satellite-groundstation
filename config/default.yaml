@@ -93,3 +93,13 @@ metrics:
   json_export:
     enabled: false
     path: /var/log/groundstation/metrics.json
+
+collision:
+  enabled: true
+  mode: clamp
+  mast_height_m: 2.0
+  boom_vhf_length_m: 1.5
+  boom_uhf_length_m: 1.2
+  boom_offset_m: 0.15
+  clearance_min_m: 0.3
+  forbidden_azimuth_sectors: []

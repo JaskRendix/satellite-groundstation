@@ -27,6 +27,7 @@ station = [
     "numpy",
     "numpy-stl",
     "requests",
+    "matplotlib",
 ]
 
 dev = [
