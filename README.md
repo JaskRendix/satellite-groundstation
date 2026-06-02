@@ -1,26 +1,23 @@
 # **Ground Station for Satellite Tracking**
 
-This repository documents the design and implementation of a complete **VHF/UHF satellite ground station** capable of tracking Low Earth Orbit (LEO) satellites.  
+This repository contains a complete **VHF/UHF satellite ground station** with hardware control, prediction, scheduling, and collision‑aware tracking.
+
 The system includes:
 
-- a dual‑axis **rotator**
-- **cross‑Yagi antennas** for VHF and UHF
-- a **polarization switcher**
-- an **SDR receiver**
-- a **station computer** running prediction and tracking software
-
-The project draws conceptual inspiration from the SatNOGS Rotator v3, but all mechanical, electrical, and software components have been **fully redesigned and rewritten**.
+- dual‑axis rotator  
+- VHF and UHF cross‑Yagi antennas  
+- polarization switchers  
+- SDR receiver  
+- station software for prediction and tracking  
+- collision simulation and avoidance
 
 **Attribution:**  
-This project includes mechanical assets and reference images originally published by  
-*David Nenicka* in the repository:  
+Mechanical assets and reference images include work by *David Nenicka*:  
 [https://github.com/DaveXNN/Ground-station-for-satellite-tracking](https://github.com/DaveXNN/Ground-station-for-satellite-tracking)
 
 ---
 
 ## **Installation**
-
-Create a virtual environment and install the project:
 
 ```bash
 python3 -m venv .venv
@@ -28,281 +25,225 @@ source .venv/bin/activate
 pip install .
 ```
 
-For development:
+Development:
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-Run the full test suite:
+Run tests:
 
 ```bash
 pytest -q
 ```
 
-The test suite uses **MockGpioBackend** and patched stepper/motion threads to simulate hardware.
+---
+
+# **1. System Overview**
+
+The ground station tracks LEO satellites with high pointing accuracy.  
+It has two main subsystems.
 
 ---
 
-## **1. System Overview**
+## **1.1 Rotator Subsystem (Raspberry Pi)**
 
-The ground station tracks fast LEO satellites with high pointing accuracy.  
-It consists of two main subsystems:
-
-### **Rotator Subsystem (Raspberry Pi)**  
 Handles hardware control:
 
-- stepper motors (azimuth and elevation)
-- homing switches (GPIO input)
-- polarization relays
-- GPIO abstraction layer
-- MQTT command interface
-- telemetry and heartbeat
-- structured logging
-- runtime metrics
-- systemd‑managed daemon
-- shortest‑path azimuth rotation
-
-### **Station Subsystem (Laptop/PC)**  
-Handles high‑level logic:
-
-- TLE management
-- pass prediction
-- scheduling
-- SatNOGS API integration
-- transmitter metadata
-- MQTT control of the rotator
-- optional GUI
-- structured logging
+- stepper motors (azimuth, elevation)  
+- homing switches  
+- polarization relays  
+- GPIO abstraction  
+- MQTT command interface  
+- telemetry  
+- structured logging  
+- metrics  
+- systemd daemon  
+- shortest‑path azimuth rotation  
 
 ---
 
-## **2. Rotator Hardware**
+## **1.2 Station Subsystem (PC/Laptop)**
 
-### **Mechanical Design**
-The rotator frame uses aluminum, wood, and 3D‑printed parts.  
-Dimensions: **240 × 240 × 305 mm**
+Handles high‑level logic:
 
-Features:
+- TLE management  
+- pass prediction  
+- scheduling  
+- SatNOGS API  
+- transmitter metadata  
+- MQTT control of the rotator  
+- collision simulation and avoidance  
+- optional GUI  
+- structured logging  
 
-- 4 bearings (2 azimuth, 2 elevation)
-- spur gear reduction
-- modular rods
-- 3D‑printed components (`/stl-files/rotator`)
+---
+
+# **2. Collision Subsystem**
+
+Located in:
+
+```
+groundstation/station/collision/
+```
+
+Provides collision‑aware tracking:
+
+- **geometry model** of mast and booms  
+- **constraint checker** for limits, clearance, forbidden azimuth, mast collision  
+- **collision simulator**  
+- **planner** for strict or clamped safe tracks  
+- **visualizer** for 3D debugging  
+- **tracking pipeline** integrating prediction and collision checks  
+
+Configuration block in `config/default.yaml`:
+
+```yaml
+collision:
+  enabled: true
+  mode: clamp
+  mast_height_m: 2.0
+  boom_vhf_length_m: 1.5
+  boom_uhf_length_m: 1.2
+  boom_offset_m: 0.15
+  clearance_min_m: 0.3
+  forbidden_azimuth_sectors: []
+```
+
+The pipeline returns a safe track for the rotator.
+
+---
+
+# **3. Rotator Hardware**
+
+### **Mechanical**
+
+- aluminum frame  
+- bearings  
+- spur gear reduction  
+- 3D‑printed parts  
+- dimensions: 240 × 240 × 305 mm  
 
 ### **Electronics**
 
 - Raspberry Pi 4B  
-- 2× NEMA23 stepper motors  
+- 2× NEMA23 motors  
 - 2× TB6600 drivers  
 - LM2596 buck converter  
 - 4× polarization relays  
 - 20 V / 45 W supply  
-- 2× normally‑closed homing switches (azimuth + elevation)  
-
-GPIO pins control all hardware, including **input pins for homing switches**.
+- 2× homing switches  
 
 ---
 
-## **3. Rotator Software**
+# **4. Rotator Software**
 
-The rotator software is modular and runs as a systemd service.
-
-### **Modules**
 Located in `groundstation/rotator/`:
 
-- `controller.py` — high‑level motion logic, limits, offsets, homing  
-- `stepper.py` — stepper control, homing, shortest‑path azimuth  
-- `gpio.py` — hardware abstraction (input + output)  
-- `polarization.py` — relay control  
-- `state_machine.py` — explicit rotator states  
-- `mqtt_client.py` — MQTT command + telemetry  
-- `protocol.py` — message schema  
-- `rotator_daemon.py` — main daemon (config‑driven, performs homing)  
-- `rotator_shutdown.py` — safe shutdown  
+- `controller.py`  
+- `stepper.py`  
+- `gpio.py`  
+- `polarization.py`  
+- `state_machine.py`  
+- `mqtt_client.py`  
+- `protocol.py`  
+- `rotator_daemon.py`  
+- `rotator_shutdown.py`  
 
----
+### **Logging**
 
-## **3.1 Logging**
+Dedicated loggers per module.
 
-The rotator uses structured logging through the Python `logging` module.  
-Each module exposes a dedicated logger:
+### **Metrics**
 
-- `rotator.controller`
-- `rotator.stepper`
-- `rotator.polarization`
-- `rotator.mqtt`
-- `rotator.gpio`
-
-Logs include:
-
-- movement commands  
-- limit violations  
-- homing events  
-- shutdown events  
-- stepper activity  
-- MQTT connection and message handling  
-
----
-
-## **3.2 Metrics**
-
-Runtime metrics are collected through a thread‑safe metrics store:
+Stored in:
 
 ```
 groundstation/logging/metrics.py
 ```
 
-Metrics include:
+Tracks position, events, MQTT activity, and state.
 
-### **Position + motion**
-- `rotator.azimuth_deg`
-- `rotator.elevation_deg`
-- `rotator.motor_position_deg`
-- `rotator.motor_speed_dps`
-- `rotator.motor_steps`
+---
 
-### **Events + errors**
-- `rotator.limit_violations`
-- `rotator.state_machine`
-- `rotator.polarization_changes`
+# **5. Antennas**
 
-### **MQTT**
-- `rotator.mqtt_messages_sent`
-- `rotator.mqtt_latency_ms`
-- `rotator.heartbeat_sent`
-- `rotator.state_published`
+Two cross‑Yagi antennas:
 
-API:
+### **VHF (145 MHz)**  
+4 elements.
 
-```python
-from groundstation.logging.metrics import metrics
+### **UHF (435 MHz)**  
+9 elements.
 
-metrics.set("rotator.azimuth_deg", 123.4)
-metrics.inc("rotator.limit_violations")
-metrics.observe("rotator.mqtt_latency_ms", 12.8)
+Models in:
+
+```
+stl-files/antennas/
 ```
 
 ---
 
-## **4. Antennas**
+# **6. Polarization Switchers**
 
-Two **cross‑Yagi antennas** are mounted on the rotator.
+Dual‑relay phase‑shift switchers:
 
-### **VHF (145 MHz)**  
-- 4 elements  
-- λ/4 phase offset  
+- Vertical  
+- Horizontal  
+- RHCP  
+- LHCP  
 
-### **UHF (435 MHz)**  
-- 9 elements  
-- λ/4 phase offset  
+Housings in:
 
-Models are in `/stl-files/antennas`.
-
----
-
-## **5. Polarization Switchers**
-
-Each band uses a dual‑relay phase‑shift switcher supporting:
-
-- `Vertical`
-- `Horizontal`
-- `RHCP`
-- `LHCP`
-
-Modes are **case‑sensitive** and must match the protocol strings.
-
-Housings are in `/stl-files/polarization_switcher`.
+```
+stl-files/polarization_switcher/
+```
 
 ---
 
-## **6. Receiver**
+# **7. Receiver**
 
-The station uses an **Airspy Mini** SDR for VHF/UHF reception.
-
----
-
-## **7. Station Software**
-
-The station computer runs the tracking logic.
-
-### **Tracking Modules**
-Located in `groundstation/station/tracking/`:
-
-- `predictor.py` — pass prediction  
-- `scheduler.py` — pass selection  
-- `tle_manager.py` — TLE caching  
-- `satnogs_client.py` — SatNOGS API  
-- `transmitter_db.py` — transmitter metadata  
-
-### **MQTT Client**
-Located in `groundstation/station/mqtt/`:
-
-- `client.py` — sends commands and receives telemetry  
-
-### **Logging**
-
-The station subsystem uses Python logging for:
-
-- TLE updates  
-- scheduler decisions  
-- tracking loop  
-- SatNOGS API interactions  
+Airspy Mini SDR for VHF/UHF.
 
 ---
 
-## **8. Configuration**
+# **8. Station Software**
 
-All configuration is stored in:
+Located in `groundstation/station/`.
+
+### **Tracking**
+
+- `predictor.py`  
+- `scheduler.py`  
+- `tle_manager.py`  
+- `satnogs_client.py`  
+- `transmitter_db.py`  
+
+### **MQTT**
+
+`station/mqtt/client.py`
+
+---
+
+# **9. Configuration**
+
+Main config:
 
 ```
 config/default.yaml
 ```
 
-Includes:
-
-- station location  
-- MQTT broker settings  
-- rotator hardware pins  
-- home pins for both axes   
-- azimuth_mode for shortest‑path rotation  
-- tracking parameters  
-- scheduler settings  
-- TLE cache settings  
-- transmitter DB settings  
-- SatNOGS API token  
-
-Example (excerpt):
-
-```yaml
-rotator:
-  azimuth:
-    ena_pin: 5
-    dir_pin: 6
-    pul_pin: 13
-    home_pin: 18
-    azimuth_mode: true
-
-  elevation:
-    ena_pin: 17
-    dir_pin: 27
-    pul_pin: 22
-    home_pin: 23
-    azimuth_mode: false
-```
+Contains station location, MQTT settings, rotator pins, tracking parameters, scheduler settings, TLE cache, transmitter DB, SatNOGS token, and collision settings.
 
 ---
 
-## **9. Mechanical Assets**
+# **10. Mechanical Assets**
 
-3D‑printed parts are in:
+3D‑printed parts:
 
 ```
 stl-files/
+    rotator/
+    antennas/
+    polarization_switcher/
 ```
-
-Subdirectories:
-
-- `rotator/`
-- `antennas/`
-- `polarization_switcher/`
